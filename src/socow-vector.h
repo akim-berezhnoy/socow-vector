@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory.h>
+
 #include <algorithm>
 #include <cstddef>
 #include <iostream>
