@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <iostream>
 #include <memory>
+#include <utility>
 
 template <typename T, size_t SMALL_SIZE>
 class socow_vector {
