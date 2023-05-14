@@ -51,7 +51,7 @@ public:
         tmp.release_ref();
       }
     } else {
-      clear();
+      this->~socow_vector();
       _heap_buffer = other._heap_buffer;
       add_ref();
     }
@@ -94,7 +94,7 @@ public:
   }
 
   ~socow_vector() noexcept {
-    _is_small_object ? clear() : release_ref();
+    _is_small_object ? clear(_size) : release_ref();
   }
 
   reference operator[](size_t index) {
