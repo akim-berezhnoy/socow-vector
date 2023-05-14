@@ -37,8 +37,8 @@ public:
     size_t min_size = std::min(_size, other._size);
     size_t max_size = std::max(_size, other._size);
     if (other._is_small_object) {
-      socow_vector tmp;
       if (_is_small_object) {
+        socow_vector tmp;
         std::uninitialized_copy_n(other._static_buffer, min_size, tmp._static_buffer);
         tmp._size = min_size;
         std::uninitialized_copy_n(other._static_buffer + min_size, other._size - min_size, _static_buffer + min_size);
@@ -46,6 +46,7 @@ public:
         std::swap_ranges(_static_buffer, _static_buffer + min_size, tmp._static_buffer);
         clear(max_size - other._size);
       } else {
+        socow_vector tmp;
         tmp = *this;
         strong_copy(*this, other);
         tmp.release_ref();
