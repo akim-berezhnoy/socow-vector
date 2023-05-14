@@ -258,9 +258,14 @@ private:
   socow_vector(const socow_vector& other, size_t capacity) : _is_small_object(capacity <= SMALL_SIZE) {
     if (capacity > SMALL_SIZE) {
       _heap_buffer = static_cast<dynamic_buffer*>(operator new(sizeof(dynamic_buffer) + sizeof(value_type) * capacity));
-      new (_heap_buffer) dynamic_buffer{capacity, 0};
-      std::uninitialized_copy_n(other._is_small_object ? other._static_buffer : other._heap_buffer->flex, other._size,
-                                _heap_buffer->flex);
+      try {
+        new (_heap_buffer) dynamic_buffer{capacity, 0};
+        std::uninitialized_copy_n(other._is_small_object ? other._static_buffer : other._heap_buffer->flex, other._size,
+                                  _heap_buffer->flex);
+      } catch (...) {
+        operator delete(_heap_buffer);
+        throw;
+      }
     } else {
       std::uninitialized_copy_n(other._is_small_object ? other._static_buffer : other._heap_buffer->flex, other._size,
                                 _static_buffer);
