@@ -46,8 +46,7 @@ public:
         std::swap_ranges(_static_buffer, _static_buffer + min_size, tmp._static_buffer);
         clear(max_size - other._size);
       } else {
-        socow_vector tmp;
-        tmp = *this;
+        socow_vector tmp(*this);
         strong_copy(*this, other);
         tmp.release_ref();
       }
@@ -265,6 +264,7 @@ private:
                                   _heap_buffer->flex);
       } catch (...) {
         operator delete(_heap_buffer);
+        _heap_buffer = nullptr;
         throw;
       }
     } else {
@@ -286,6 +286,7 @@ private:
     if (_heap_buffer->ref_count == 0) {
       clear(_size);
       operator delete(_heap_buffer);
+      _heap_buffer = nullptr;
     } else {
       _heap_buffer->ref_count--;
     }
