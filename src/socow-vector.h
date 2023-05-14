@@ -1,10 +1,10 @@
 #pragma once
 
-#include <memory.h>
-
 #include <algorithm>
+#include <cassert>
 #include <cstddef>
 #include <iostream>
+#include <memory>
 
 template <typename T, size_t SMALL_SIZE>
 class socow_vector {
