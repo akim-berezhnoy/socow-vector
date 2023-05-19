@@ -47,7 +47,7 @@ public:
         clear(max_size - other._size);
       } else {
         socow_vector tmp(*this);
-        strong_copy(*this, other);
+        strong_copy_small_to_big(*this, other._size, other);
         tmp.release_ref();
       }
     } else {
@@ -72,14 +72,14 @@ public:
         (_size > other._size ? *this : other).clear(diff);
       } else {
         dynamic_buffer* tmp = _heap_buffer;
-        strong_copy(*this, other);
+        strong_copy_small_to_big(*this, other._size, other);
         other.clear(other._size);
         other._heap_buffer = tmp;
       }
     } else {
       if (_is_small_object) {
         dynamic_buffer* tmp = other._heap_buffer;
-        strong_copy(other, *this);
+        strong_copy_small_to_big(other, _size, *this);
         clear(_size);
         _heap_buffer = tmp;
       } else {
@@ -138,10 +138,10 @@ public:
   }
 
   void push_back(const T& value) {
-    if (_size == capacity()) {
-      socow_vector tmp(*this, _size == 0 ? 1 : _size * 2);
+    if (_size == capacity() || shared()) {
+      socow_vector tmp(*this, shared() ? _size + 1 : (_size == 0 ? 1 : _size * 2));
       tmp.push_back(value);
-      *this = tmp;
+      operator=(tmp);
     } else {
       new (data() + _size) value_type(value);
       ++_size;
@@ -150,9 +150,17 @@ public:
 
   void pop_back() {
     assert(_size > 0);
-    ensure_unique();
-    --_size;
-    element(_size).~value_type();
+    if (shared()) {
+      if (_size == SMALL_SIZE + 1) {
+        shrink_big_to_small(SMALL_SIZE);
+      } else {
+        operator=(socow_vector(*this, _size - 1));
+      }
+    } else {
+      ensure_unique();
+      --_size;
+      element(_size).~value_type();
+    }
   }
 
   bool empty() const noexcept {
@@ -173,9 +181,13 @@ public:
     if (_size == capacity() || capacity() == SMALL_SIZE) {
       return;
     }
-    *this = socow_vector(*this, _size);
-    if (_size <= SMALL_SIZE) {
-      _is_small_object = true;
+    if (_size > SMALL_SIZE) {
+      operator=(socow_vector(*this, _size));
+      if (_size <= SMALL_SIZE) {
+        _is_small_object = true;
+      }
+    } else {
+      shrink_big_to_small(_size);
     }
   }
 
@@ -211,7 +223,7 @@ public:
 
   iterator insert(const_iterator pos, const T& value) {
     ptrdiff_t index = pos - std::as_const(*this).begin();
-    if (_size == capacity()) {
+    if (_size == capacity() || shared()) {
       socow_vector tmp(_size + 1);
       std::uninitialized_copy_n(_is_small_object ? _static_buffer : _heap_buffer->flex, index, tmp._heap_buffer->flex);
       tmp._size = index;
@@ -243,6 +255,35 @@ public:
     if (first == last) {
       return data() + index;
     }
+    if (shared()) {
+      if (_size - range > SMALL_SIZE) {
+        socow_vector tmp(_size - range);
+        std::uninitialized_copy(last, std::as_const(*this).end(),
+                                std::uninitialized_copy(std::as_const(*this).begin(), first, tmp.begin()));
+        tmp._size = _size - range;
+        operator=(tmp);
+        return _heap_buffer->flex + index;
+      } else {
+        socow_vector tmp = *this;
+        try {
+          iterator second_batch_start = std::uninitialized_copy(std::as_const(tmp).begin(), first, _static_buffer);
+          try {
+            std::uninitialized_copy(last, std::as_const(tmp).end(), second_batch_start);
+          } catch (...) {
+            for (size_t i = 0; i < index; ++i) {
+              _static_buffer[i].~value_type();
+            }
+            throw;
+          }
+        } catch (...) {
+          _heap_buffer = tmp._heap_buffer;
+          throw;
+        }
+        tmp.release_ref();
+        _size -= range, _is_small_object = true;
+        return _static_buffer + index;
+      }
+    }
     ensure_unique();
     const socow_vector& const_this = std::as_const(*this);
     for (size_t i = index; i < (const_this.end() - const_this.begin()) - range; ++i) {
@@ -256,22 +297,23 @@ public:
 
 private:
   socow_vector(const socow_vector& other, size_t capacity) : _is_small_object(capacity <= SMALL_SIZE) {
+    size_t size_to_copy = std::min(capacity, other._size);
     if (capacity > SMALL_SIZE) {
       _heap_buffer = static_cast<dynamic_buffer*>(operator new(sizeof(dynamic_buffer) + sizeof(value_type) * capacity));
       try {
         new (_heap_buffer) dynamic_buffer{capacity, 0};
-        std::uninitialized_copy_n(other._is_small_object ? other._static_buffer : other._heap_buffer->flex, other._size,
-                                  _heap_buffer->flex);
+        std::uninitialized_copy_n(other._is_small_object ? other._static_buffer : other._heap_buffer->flex,
+                                  size_to_copy, _heap_buffer->flex);
       } catch (...) {
         operator delete(_heap_buffer);
         _heap_buffer = nullptr;
         throw;
       }
     } else {
-      std::uninitialized_copy_n(other._is_small_object ? other._static_buffer : other._heap_buffer->flex, other._size,
+      std::uninitialized_copy_n(other._is_small_object ? other._static_buffer : other._heap_buffer->flex, size_to_copy,
                                 _static_buffer);
     }
-    _size = other._size;
+    _size = size_to_copy;
   }
 
   void add_ref() {
@@ -292,14 +334,26 @@ private:
     }
   }
 
-  void strong_copy(socow_vector& to, const socow_vector& from) {
+  void strong_copy_small_to_big(socow_vector& to, size_t n, const socow_vector& from) {
     dynamic_buffer* tmp = to._heap_buffer;
     try {
-      std::uninitialized_copy_n(from._static_buffer, from._size, to._static_buffer);
+      std::uninitialized_copy_n(from._static_buffer, n, to._static_buffer);
     } catch (...) {
       to._heap_buffer = tmp;
       throw;
     }
+  }
+
+  void shrink_big_to_small(size_t new_size) {
+    socow_vector tmp = *this;
+    try {
+      std::uninitialized_copy_n(tmp._heap_buffer->flex, new_size, _static_buffer);
+    } catch (...) {
+      _heap_buffer = tmp._heap_buffer;
+      throw;
+    }
+    tmp.release_ref();
+    _size = new_size, _is_small_object = true;
   }
 
   void ensure_unique() {
@@ -324,6 +378,10 @@ private:
     for (size_t i = 1; i <= n; ++i) {
       element(_size - i).~value_type();
     }
+  }
+
+  bool shared() {
+    return !_is_small_object && _heap_buffer->ref_count;
   }
 
   struct dynamic_buffer {
