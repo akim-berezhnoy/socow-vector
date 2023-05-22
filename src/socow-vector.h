@@ -287,7 +287,14 @@ private:
       _heap_buffer = static_cast<dynamic_buffer*>(operator new(sizeof(dynamic_buffer) + sizeof(value_type) * capacity));
       new (_heap_buffer) dynamic_buffer{capacity};
     }
-    std::uninitialized_copy_n(other.cbegin(), size_to_copy, begin());
+    try {
+      std::uninitialized_copy_n(other.cbegin(), size_to_copy, begin());
+    } catch (...) {
+      if (!_is_small_object) {
+        operator delete(_heap_buffer);
+      }
+      throw;
+    }
     _size = size_to_copy;
   }
 
