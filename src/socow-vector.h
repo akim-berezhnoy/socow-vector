@@ -281,7 +281,7 @@ public:
   }
 
 private:
-  socow_vector(const socow_vector& other, size_t capacity) : _is_small_object(capacity <= SMALL_SIZE), _size(0) {
+  socow_vector(const socow_vector& other, size_t capacity) : _size(0), _is_small_object(capacity <= SMALL_SIZE) {
     size_t size_to_copy = std::min(capacity, other.size());
     if (!_is_small_object) {
       _heap_buffer = static_cast<dynamic_buffer*>(operator new(sizeof(dynamic_buffer) + sizeof(value_type) * capacity));
