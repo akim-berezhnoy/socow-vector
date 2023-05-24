@@ -49,7 +49,8 @@ public:
         strong_copy_to_big_which_will_become_small(other._static_buffer, other.size(), *this);
       }
     } else {
-      release_resources();
+      this->~socow_vector();
+      new (this) socow_vector();
       _heap_buffer = other._heap_buffer;
       _heap_buffer->add_ref();
     }
@@ -78,10 +79,6 @@ public:
   }
 
   ~socow_vector() noexcept {
-    release_resources();
-  }
-
-  void release_resources() noexcept {
     if (_is_small_object) {
       destroy_last_n(size());
     } else {
@@ -291,7 +288,14 @@ private:
       _heap_buffer = static_cast<dynamic_buffer*>(operator new(sizeof(dynamic_buffer) + sizeof(value_type) * capacity));
       new (_heap_buffer) dynamic_buffer{capacity};
     }
-    std::uninitialized_copy_n(other.cbegin(), size_to_copy, begin());
+    try {
+      std::uninitialized_copy_n(other.cbegin(), size_to_copy, begin());
+    } catch (...) {
+      if (!_is_small_object) {
+        operator delete(_heap_buffer);
+      }
+      throw;
+    }
     _size = size_to_copy;
   }
 
