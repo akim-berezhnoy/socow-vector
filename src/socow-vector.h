@@ -49,8 +49,7 @@ public:
         strong_copy_to_big_which_will_become_small(other._static_buffer, other.size(), *this);
       }
     } else {
-      this->~socow_vector();
-      new (this) socow_vector();
+      release_resources();
       _heap_buffer = other._heap_buffer;
       _heap_buffer->add_ref();
     }
@@ -79,6 +78,10 @@ public:
   }
 
   ~socow_vector() noexcept {
+    release_resources();
+  }
+
+  void release_resources() noexcept {
     if (_is_small_object) {
       destroy_last_n(size());
     } else {
