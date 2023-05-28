@@ -152,7 +152,7 @@ public:
   }
 
   void reserve(size_t new_capacity) {
-    if (new_capacity > capacity() || (is_shared() && (size() < new_capacity || new_capacity <= SMALL_SIZE))) {
+    if (new_capacity > capacity() || (is_shared() && size() < new_capacity)) {
       operator=(socow_vector(*this, new_capacity));
     }
   }
