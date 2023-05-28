@@ -61,9 +61,10 @@ public:
   void swap(socow_vector& other) {
     size_t max_size = std::max(size(), other.size()), same_range = size() + other.size() - max_size;
     if (_is_small_object && other._is_small_object) {
-      bool bigger = size() > other.size();
-      std::uninitialized_copy_n((bigger ? _static_buffer : other._static_buffer) + same_range, max_size - same_range,
-                                (bigger ? other._static_buffer : _static_buffer) + same_range);
+      socow_vector& bigger = size() > other.size() ? *this : other;
+      socow_vector& smaller = size() > other.size() ? other : *this;
+      std::uninitialized_copy_n(bigger._static_buffer + same_range, max_size - same_range,
+                                smaller._static_buffer + same_range);
       (size() > other.size() ? *this : other).destroy_last_n(max_size - same_range);
       std::swap(_is_small_object, other._is_small_object);
       std::swap(_size, other._size);
@@ -244,23 +245,16 @@ public:
         return _heap_buffer->flex + index;
       } else {
         socow_vector tmp = *this;
+        operator=(socow_vector());
         try {
           iterator second_batch_start = std::uninitialized_copy(tmp.cbegin(), first, _static_buffer);
-          try {
-            std::uninitialized_copy(last, tmp.cend(), second_batch_start);
-          } catch (...) {
-            for (size_t i = 0; i < index; ++i) {
-              _static_buffer[i].~value_type();
-            }
-            throw;
-          }
+          _size = index;
+          std::uninitialized_copy(last, tmp.cend(), second_batch_start);
+          _size = tmp.size() - range;
         } catch (...) {
-          _heap_buffer = tmp._heap_buffer;
+          operator=(tmp);
           throw;
         }
-        tmp.release_ref();
-        _size -= range;
-        _is_small_object = true;
         return _static_buffer + index;
       }
     } else {
@@ -275,7 +269,6 @@ public:
 
 private:
   socow_vector(const socow_vector& other, size_t capacity) : socow_vector() {
-    _size = 0;
     _is_small_object = capacity <= SMALL_SIZE;
     size_t size_to_copy = std::min(capacity, other.size());
     if (!_is_small_object) {
@@ -295,7 +288,7 @@ private:
     }
   }
 
-  static void strong_copy_to_big_which_will_become_small(const_pointer from, size_t n, socow_vector& to) {
+  static void strong_copy_to_big_which_will_become_small(const_iterator from, size_t n, socow_vector& to) {
     socow_vector tmp = to;
     try {
       std::uninitialized_copy_n(from, n, to._static_buffer);
