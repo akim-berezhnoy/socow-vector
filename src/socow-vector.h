@@ -49,8 +49,7 @@ public:
         strong_copy_to_big_which_will_become_small(other._static_buffer, other.size(), *this);
       }
     } else {
-      this->~socow_vector();
-      new (this) socow_vector();
+      operator=(socow_vector());
       _heap_buffer = other._heap_buffer;
       _heap_buffer->add_ref();
     }
@@ -115,38 +114,31 @@ public:
   }
 
   reference front() {
-    assert(size() > 0);
+    assert(!empty());
     return operator[](0);
   }
 
   const_reference front() const noexcept {
-    assert(size() > 0);
+    assert(!empty());
     return operator[](0);
   }
 
   reference back() {
-    assert(size() > 0);
+    assert(!empty());
     return operator[](size() - 1);
   }
 
   const_reference back() const noexcept {
-    assert(size() > 0);
+    assert(!empty());
     return operator[](size() - 1);
   }
 
   void push_back(const T& value) {
-    if (size() == capacity() || is_shared()) {
-      socow_vector tmp(*this, size() == 0 ? 1 : size() * 2);
-      tmp.push_back(value);
-      operator=(tmp);
-    } else {
-      new (data() + size()) value_type(value);
-      ++_size;
-    }
+    insert(cend(), value);
   }
 
   void pop_back() {
-    assert(size() > 0);
+    assert(!empty());
     erase((_is_small_object ? _static_buffer : _heap_buffer->flex) + size() - 1);
   }
 
@@ -159,7 +151,7 @@ public:
   }
 
   void reserve(size_t new_capacity) {
-    if (new_capacity > capacity() || (is_shared() && new_capacity >= size())) {
+    if (new_capacity > capacity() || (is_shared() && (size() < new_capacity || new_capacity <= SMALL_SIZE))) {
       operator=(socow_vector(*this, new_capacity));
     }
   }
@@ -176,11 +168,11 @@ public:
   }
 
   void clear() noexcept {
-    if (_is_small_object || !_heap_buffer->ref_count) {
-      destroy_last_n(size());
-    } else {
+    if (is_shared()) {
       --_heap_buffer->ref_count;
       _is_small_object = true;
+    } else {
+      destroy_last_n(size());
     }
     _size = 0;
   }
@@ -211,21 +203,20 @@ public:
 
   iterator insert(const_iterator pos, const T& value) {
     ptrdiff_t index = pos - cbegin();
-    if (size() == capacity() || is_shared()) {
-      socow_vector tmp(size() == 0 ? 1 : size() * 2);
+    bool full = size() == capacity();
+    if (full || is_shared()) {
+      socow_vector tmp(empty() ? 1 : capacity() * (full ? 2 : 1));
       std::uninitialized_copy_n(cbegin(), index, tmp.begin());
       tmp._size = index;
       new (tmp.begin() + index) value_type(value);
       tmp._size += 1;
-      std::uninitialized_copy_n(cbegin() + index, size() - index, tmp.begin() + index + 1);
+      std::uninitialized_copy(cbegin() + index, cend(), tmp.begin() + index + 1);
       tmp._size = size() + 1;
       operator=(tmp);
       return _heap_buffer->flex + index;
     } else {
-      push_back(value);
-      if (size() == 1) {
-        return begin();
-      }
+      new (data() + size()) value_type(value);
+      ++_size;
       std::rotate(begin() + index, end() - 1, end());
       return begin() + index;
     }
@@ -245,8 +236,9 @@ public:
         shrink_big_to_small(SMALL_SIZE);
         return end();
       } else if (size() - range > SMALL_SIZE) {
-        socow_vector tmp(size() - range);
-        std::uninitialized_copy(last, cend(), std::uninitialized_copy(cbegin(), first, tmp.begin()));
+        socow_vector tmp(size());
+        iterator second_batch_insertion_start = std::uninitialized_copy(cbegin(), first, tmp.begin());
+        std::uninitialized_copy(last, cend(), second_batch_insertion_start);
         tmp._size = size() - range;
         operator=(tmp);
         return _heap_buffer->flex + index;
@@ -282,20 +274,15 @@ public:
   }
 
 private:
-  socow_vector(const socow_vector& other, size_t capacity) : _size(0), _is_small_object(capacity <= SMALL_SIZE) {
+  socow_vector(const socow_vector& other, size_t capacity) : socow_vector() {
+    _size = 0;
+    _is_small_object = capacity <= SMALL_SIZE;
     size_t size_to_copy = std::min(capacity, other.size());
     if (!_is_small_object) {
       _heap_buffer = static_cast<dynamic_buffer*>(operator new(sizeof(dynamic_buffer) + sizeof(value_type) * capacity));
       new (_heap_buffer) dynamic_buffer{capacity};
     }
-    try {
-      std::uninitialized_copy_n(other.cbegin(), size_to_copy, begin());
-    } catch (...) {
-      if (!_is_small_object) {
-        operator delete(_heap_buffer);
-      }
-      throw;
-    }
+    std::uninitialized_copy_n(other.cbegin(), size_to_copy, begin());
     _size = size_to_copy;
   }
 
@@ -326,9 +313,7 @@ private:
   }
 
   void ensure_unique() {
-    if (_is_small_object) {
-      return;
-    }
+    assert(!_is_small_object);
     if (_heap_buffer->ref_count) {
       operator=(socow_vector(*this, capacity()));
     }
@@ -358,7 +343,7 @@ private:
 
   union {
     value_type _static_buffer[SMALL_SIZE];
-    dynamic_buffer* _heap_buffer{nullptr};
+    dynamic_buffer* _heap_buffer;
   };
 
 private:
