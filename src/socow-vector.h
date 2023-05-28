@@ -47,7 +47,7 @@ public:
         std::swap_ranges(_static_buffer, _static_buffer + min_size, tmp._static_buffer);
         destroy_last_n(max_size - other.size());
       } else {
-        strong_copy_to_big_which_will_become_small(other._static_buffer, other.size(), *this);
+        strong_copy_to_big_this_which_will_become_small(other._static_buffer, other.size());
       }
     } else {
       operator=(socow_vector());
@@ -153,7 +153,9 @@ public:
   }
 
   void reserve(size_t new_capacity) {
-    if (new_capacity > capacity() || (is_shared() && size() < new_capacity)) {
+    if (new_capacity <= SMALL_SIZE) {
+      shrink_to_fit();
+    } else if (new_capacity > capacity() || (is_shared() && size() < new_capacity)) {
       operator=(socow_vector(*this, new_capacity));
     }
   }
@@ -289,19 +291,19 @@ private:
     }
   }
 
-  static void strong_copy_to_big_which_will_become_small(const_iterator from, size_t n, socow_vector& to) {
-    socow_vector tmp = to;
+  void strong_copy_to_big_this_which_will_become_small(const_iterator from, size_t n) {
+    socow_vector tmp = *this;
     try {
-      std::uninitialized_copy_n(from, n, to._static_buffer);
+      std::uninitialized_copy_n(from, n, _static_buffer);
     } catch (...) {
-      to._heap_buffer = tmp._heap_buffer;
+      _heap_buffer = tmp._heap_buffer;
       throw;
     }
     tmp.release_ref();
   }
 
   void shrink_big_to_small(size_t new_size) {
-    strong_copy_to_big_which_will_become_small(this->_heap_buffer->flex, new_size, *this);
+    strong_copy_to_big_this_which_will_become_small(this->_heap_buffer->flex, new_size);
     _size = new_size;
     _is_small_object = true;
   }
