@@ -41,7 +41,8 @@ public:
         socow_vector tmp;
         std::uninitialized_copy_n(other._static_buffer, min_size, tmp._static_buffer);
         tmp._size = min_size;
-        std::uninitialized_copy_n(other._static_buffer + min_size, other.size() - min_size, _static_buffer + min_size);
+        std::uninitialized_copy(other._static_buffer + min_size, other._static_buffer + other.size(),
+                                _static_buffer + min_size);
         _size = max_size;
         std::swap_ranges(_static_buffer, _static_buffer + min_size, tmp._static_buffer);
         destroy_last_n(max_size - other.size());
