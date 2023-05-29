@@ -41,8 +41,7 @@ public:
         socow_vector tmp;
         std::uninitialized_copy_n(other._static_buffer, min_size, tmp._static_buffer);
         tmp._size = min_size;
-        std::uninitialized_copy(other._static_buffer + min_size, other._static_buffer + other.size(),
-                                _static_buffer + min_size);
+        std::uninitialized_copy(other._static_buffer + min_size, other.end(), _static_buffer + min_size);
         _size = max_size;
         std::swap_ranges(_static_buffer, _static_buffer + min_size, tmp._static_buffer);
         destroy_last_n(max_size - other.size());
@@ -63,16 +62,15 @@ public:
     if (&other == this) {
       return;
     }
-    size_t max_size = std::max(size(), other.size()), same_range = size() + other.size() - max_size;
     if (_is_small_object && other._is_small_object) {
       socow_vector& bigger = size() > other.size() ? *this : other;
       socow_vector& smaller = size() > other.size() ? other : *this;
-      std::uninitialized_copy_n(bigger._static_buffer + same_range, max_size - same_range,
-                                smaller._static_buffer + same_range);
-      (size() > other.size() ? *this : other).destroy_last_n(max_size - same_range);
-      std::swap(_is_small_object, other._is_small_object);
-      std::swap(_size, other._size);
-      std::swap_ranges(_static_buffer, _static_buffer + same_range, other._static_buffer);
+      std::uninitialized_copy_n(bigger._static_buffer + smaller.size(), bigger.size() - smaller.size(),
+                                smaller._static_buffer + smaller.size());
+      bigger.destroy_last_n(bigger.size() - smaller.size());
+      std::swap(bigger._is_small_object, smaller._is_small_object);
+      std::swap(bigger._size, smaller._size);
+      std::swap_ranges(bigger._static_buffer, bigger._static_buffer + smaller.size(), smaller._static_buffer);
     } else {
       socow_vector& static_or_dynamic_vector = _is_small_object ? *this : other;
       socow_vector& dynamic_vector = _is_small_object ? other : *this;
@@ -144,7 +142,7 @@ public:
 
   void pop_back() {
     assert(!empty());
-    erase((_is_small_object ? _static_buffer : _heap_buffer->flex) + size() - 1);
+    erase(cend() - 1);
   }
 
   bool empty() const noexcept {
@@ -239,11 +237,8 @@ public:
       return data() + index;
     }
     if (is_shared()) {
-      if (size() == SMALL_SIZE + 1) {
-        shrink_big_to_small(SMALL_SIZE);
-        return end();
-      } else if (size() - range > SMALL_SIZE) {
-        socow_vector tmp(size());
+      if (size() - range > SMALL_SIZE) {
+        socow_vector tmp(size() - range);
         iterator second_batch_insertion_start = std::uninitialized_copy(cbegin(), first, tmp.begin());
         std::uninitialized_copy(last, cend(), second_batch_insertion_start);
         tmp._size = size() - range;
