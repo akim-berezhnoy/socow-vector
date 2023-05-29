@@ -60,6 +60,9 @@ public:
   }
 
   void swap(socow_vector& other) {
+    if (&other == this) {
+      return;
+    }
     size_t max_size = std::max(size(), other.size()), same_range = size() + other.size() - max_size;
     if (_is_small_object && other._is_small_object) {
       socow_vector& bigger = size() > other.size() ? *this : other;
